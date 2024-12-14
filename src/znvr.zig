@@ -107,14 +107,14 @@ const Mode = enum {
 var activeMode = Mode.NONE;
 
 fn setModeFromOpts() void {
-    if (optModeSend.value == true) {
-        activeMode = Mode.SEND;
+    if (optModeBuffer.value == true) {
+        activeMode = Mode.BUFFER;
     } else if (optModeTab.value == true) {
         activeMode = Mode.TAB;
     } else if (optModeExpr.value == true) {
         activeMode = Mode.EXPR;
-    } else if (optModeExpr.value == true) {
-        activeMode = Mode.EXPR;
+    } else if (optModeSend.value == true) {
+        activeMode = Mode.SEND;
     }
 }
 
