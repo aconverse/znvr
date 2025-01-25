@@ -103,7 +103,7 @@ pub const RpcConn = struct {
         writePtr += count;
         try buf.resize(writePtr);
 
-        var decode_buf = buf.items;
+        var decode_buf: []const u8 = buf.items;
         const val = msgpack.unpack_val(&decode_buf) catch |err| {
             switch (err) {
                 error.Eof => return null,

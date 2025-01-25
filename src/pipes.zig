@@ -6,8 +6,9 @@ const HANDLE = win32.HANDLE;
 const DWORD = win32.DWORD;
 const BOOL = win32.BOOL;
 const WINAPI = win32.WINAPI;
-pub extern "kernel32" fn OpenProcess(dwDesiredAccess: DWORD, bInheritHandle: BOOL, dwProcessId: DWORD) callconv(WINAPI) HANDLE;
 const FILETIME = win32.FILETIME;
+pub extern "kernel32" fn OpenProcess(dwDesiredAccess: DWORD, bInheritHandle: BOOL, dwProcessId: DWORD) callconv(WINAPI) HANDLE;
+pub extern "kernel32" fn GetProcessTimes(in_hProcess: HANDLE, out_lpCreationTime: *FILETIME, out_lpExitTime: *FILETIME, out_lpKernelTime: *FILETIME, out_lpUserTime: *FILETIME) callconv(WINAPI) BOOL;
 
 const FileOpenError = std.fs.File.OpenError;
 
@@ -25,7 +26,7 @@ fn getProcCreationTime(pid: u32) u64 {
     var ft1 = mem.zeroes(FILETIME);
     var ft2 = mem.zeroes(FILETIME);
     var ft3 = mem.zeroes(FILETIME);
-    if (0 == win32.kernel32.GetProcessTimes(hProcess, &ftCreation, &ft1, &ft2, &ft3)) {
+    if (0 == GetProcessTimes(hProcess, &ftCreation, &ft1, &ft2, &ft3)) {
         return std.math.maxInt(i64);
     }
     return fileTimeToU64(ftCreation);

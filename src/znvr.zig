@@ -332,7 +332,7 @@ fn resolvePaths(alloc: mem.Allocator, files: []const [:0]u8) ![]const [:0]u8 {
                 j += 1;
             }
         }
-        var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
         outfiles[i] = try alloc.dupeZ(u8, try std.fs.cwd().realpath(files[i], buf[0..]));
         i += 1;
     }
