@@ -6,6 +6,7 @@ A remote control for [neovim](https://neovim.io/).
 
 - Manually select or automatically detect neovim socket address
 - Support for --remote, --remote-tab, --remote-send, --remote-expr from vim/neovim
+- Support for --remote-cd to change the remote directory.
 - Supports Windows, macOS, and Linux
 
 ## Why ZNVR Instead of Neovim CLI
@@ -22,10 +23,18 @@ remote interface (as is their prerogative). https://github.com/neovim/neovim/pul
 Znvr builds a single mostly static binary with no runtime needed. Znvr treats windows as a
 first-class target.
 
-## Why Zig?
+## Why Zig
 
 It's got a lot of buzz and I wanted to give it a try. It's got great C interop and is good
 for building a small, self-contained executable.
+
+## Why add Lua
+
+Lua is Neovim's scripting language. Letting Neovim use its own directory and globbing rules,
+rules results in a consistent file handling experience.
+
+Znvr is still a mostly static zig binary that doesn't link Lua. The Lua code is sent to Neovim
+for remote execution.
 
 ## Building from Source
 

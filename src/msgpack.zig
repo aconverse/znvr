@@ -22,6 +22,10 @@ pub fn pack_nil(buf: *ArrayList(u8)) !void {
     try pack_raw(buf, 0xc0);
 }
 
+pub fn pack_bool(buf: *ArrayList(u8), val: bool) !void {
+    try pack_raw(buf, 0xc2 + @as(u8, @intFromBool(val)));
+}
+
 pub fn pack_int(buf: *ArrayList(u8), val: i64) !void {
     if (val >= MIN_FIXINT and val <= MAX_FIXINT) {
         return pack_fixint(buf, @truncate(val));

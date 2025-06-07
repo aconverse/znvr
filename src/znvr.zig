@@ -85,6 +85,12 @@ var optModeSend = ArgOpt(bool){
     .help = "send keys",
     .final = true,
 };
+var optModeChangeDir = ArgOpt(bool){
+    .value = null,
+    .names = &[_][]const u8{ "--remote-cd", "--cd" },
+    .help = "change directory",
+    .final = true,
+};
 
 const KnownOpts = [_]Opt{
     Opt{ .implicitBool = &optHelp },
@@ -94,6 +100,7 @@ const KnownOpts = [_]Opt{
     Opt{ .implicitBool = &optModeTab },
     Opt{ .implicitBool = &optModeExpr },
     Opt{ .implicitBool = &optModeSend },
+    Opt{ .implicitBool = &optModeChangeDir },
 };
 
 const Mode = enum {
@@ -102,6 +109,7 @@ const Mode = enum {
     TAB,
     EXPR,
     SEND,
+    CHANGE_DIR,
 };
 
 var activeMode = Mode.NONE;
@@ -115,6 +123,8 @@ fn setModeFromOpts() void {
         activeMode = Mode.EXPR;
     } else if (optModeSend.value == true) {
         activeMode = Mode.SEND;
+    } else if (optModeChangeDir.value == true) {
+        activeMode = Mode.CHANGE_DIR;
     }
 }
 
@@ -240,22 +250,11 @@ pub fn main() !u8 {
             std.debug.print("--remote-send requires exactly one argument\n", .{});
             return 1;
         },
+        Mode.CHANGE_DIR => if (files.len != 1) {
+            std.debug.print("--remote-cd requires exactly one argument\n", .{});
+            return 1;
+        },
         Mode.NONE => unreachable,
-    }
-
-    var target_files = files;
-    var resolved_files: ?[]const [:0]u8 = null;
-    if (optRelative.value != true and (activeMode == Mode.BUFFER or activeMode == Mode.TAB)) {
-        resolved_files = try resolvePaths(alloc, files);
-        target_files = resolved_files orelse unreachable;
-    }
-    defer {
-        if (resolved_files) |v| {
-            for (v) |f| {
-                alloc.free(f);
-            }
-            alloc.free(v);
-        }
     }
 
     var conn = rpc.RpcConn.openConn(servername) catch |e| {
@@ -265,18 +264,34 @@ pub fn main() !u8 {
     defer conn.close();
 
     if (activeMode == Mode.EXPR) {
-        conn.sendExpr(alloc, target_files[0]) catch |e| {
+        conn.sendExpr(alloc, files[0]) catch |e| {
             std.debug.print("failed to send command to server: {}\n", .{e});
         };
     } else if (activeMode == Mode.SEND) {
-        conn.sendKeys(alloc, target_files[0]) catch |e| {
+        conn.sendKeys(alloc, files[0]) catch |e| {
+            std.debug.print("failed to send command to server: {}\n", .{e});
+        };
+    } else if (activeMode == Mode.CHANGE_DIR) {
+        var resolved_dir: ?[]const u8 = null;
+        if (optRelative.value != true) {
+            const cwd = try std.process.getCwdAlloc(alloc);
+            defer alloc.free(cwd);
+            resolved_dir = try std.fs.path.resolve(alloc, &[_][]const u8{
+                cwd,
+                files[0],
+            });
+        }
+        defer if (resolved_dir) |a| alloc.free(a);
+        conn.sendChangeDir(alloc, resolved_dir orelse files[0]) catch |e| {
             std.debug.print("failed to send command to server: {}\n", .{e});
         };
     } else {
-        const cmd = try remoteFileCmd(alloc, target_files, activeMode == Mode.TAB);
-        defer alloc.free(cmd);
-
-        conn.sendCmd(alloc, cmd) catch |e| {
+        const dir: ?[]const u8 = if (optRelative.value != true)
+            try std.process.getCwdAlloc(alloc)
+        else
+            null;
+        defer if (dir) |a| alloc.free(a);
+        conn.sendLuaOpen(alloc, activeMode == Mode.TAB, dir orelse "", files) catch |e| {
             std.debug.print("failed to send command to server: {}\n", .{e});
         };
     }
@@ -302,7 +317,7 @@ pub fn main() !u8 {
                         std.io.getStdOut().writer().print("{}\n", .{ok}) catch {};
                     } else if (activeMode == Mode.SEND) {
                         // seems to return the number of keys
-                    } else {
+                    } else if (activeMode == Mode.CHANGE_DIR) {
                         std.debug.print("{}\n", .{ok});
                     }
                 },
@@ -318,25 +333,6 @@ fn pollResp(conn: *rpc.RpcConn, respBuf: *std.ArrayList(u8)) !msgpack.Value {
         resp = try conn.accumResp(respBuf);
     }
     return resp.?;
-}
-
-fn resolvePaths(alloc: mem.Allocator, files: []const [:0]u8) ![]const [:0]u8 {
-    const outfiles = try alloc.alloc([:0]u8, files.len);
-    errdefer alloc.free(outfiles);
-    var i: usize = 0;
-    while (i < files.len) {
-        errdefer {
-            var j: usize = 0;
-            while (j < i) {
-                alloc.free(outfiles[j]);
-                j += 1;
-            }
-        }
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
-        outfiles[i] = try alloc.dupeZ(u8, try std.fs.cwd().realpath(files[i], buf[0..]));
-        i += 1;
-    }
-    return outfiles;
 }
 
 fn remoteFileCmd(alloc: mem.Allocator, files: []const [:0]u8, tabs: bool) ![]const u8 {

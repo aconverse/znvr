@@ -9,6 +9,8 @@ const posix = std.posix;
 const msgpack = @import("msgpack.zig");
 const pipes = @import("pipes.zig");
 
+const openScript = @embedFile("openfiles.lua");
+
 pub const RpcConn = struct {
     msgId: u32,
     tp: Transport,
@@ -71,6 +73,52 @@ pub const RpcConn = struct {
         try msgpack.pack_str(&buf, "nvim_eval");
         try msgpack.pack_raw(&buf, 0x91);
         try msgpack.pack_str(&buf, expr);
+
+        try self.tp.writeAll(buf.items);
+    }
+
+    pub fn sendLuaOpen(self: *RpcConn, alloc: mem.Allocator, tabs: bool, dir: []const u8, files: []const [:0]u8) !void {
+        const msgId: u32 = self.msgId + 1;
+        self.msgId = msgId;
+
+        const values = try alloc.alloc(msgpack.Value, files.len);
+        for (files, values) |file, *value| {
+            value.* = .{ .Str = file };
+        }
+        defer alloc.free(values);
+
+        var buf = std.ArrayList(u8).init(alloc);
+        defer buf.deinit();
+        try msgpack.pack_raw(&buf, 0x94);
+        try msgpack.pack_raw(&buf, 0x0);
+        try msgpack.pack_int(&buf, msgId);
+        try msgpack.pack_str(&buf, "nvim_exec_lua");
+        try msgpack.pack_raw(&buf, 0x92);
+        try msgpack.pack_str(&buf, openScript);
+        try msgpack.pack_raw(&buf, 0x93);
+        try msgpack.pack_bool(&buf, tabs);
+        try msgpack.pack_str(&buf, dir);
+        try msgpack.pack_arr_from_slice(&buf, values);
+
+        try self.tp.writeAll(buf.items);
+    }
+
+    pub fn sendChangeDir(self: *RpcConn, alloc: mem.Allocator, dir: []const u8) !void {
+        const msgId: u32 = self.msgId + 1;
+        self.msgId = msgId;
+
+        var buf = std.ArrayList(u8).init(alloc);
+        defer buf.deinit();
+        // This might be overkill, but I think it handles escaping
+        try msgpack.pack_raw(&buf, 0x94);
+        try msgpack.pack_raw(&buf, 0x0);
+        try msgpack.pack_int(&buf, msgId);
+        try msgpack.pack_str(&buf, "nvim_exec_lua");
+        try msgpack.pack_raw(&buf, 0x92);
+        // Maybe parse the error lua side?
+        try msgpack.pack_str(&buf, "vim.fn.chdir(...); return vim.fn.getcwd()");
+        try msgpack.pack_raw(&buf, 0x91);
+        try msgpack.pack_str(&buf, dir);
 
         try self.tp.writeAll(buf.items);
     }
