@@ -38,4 +38,4 @@ for remote execution.
 
 ## Building from Source
 
-`zig build-exe src/znvr.zig`
+Run `zig build`, then the executable will be in `zig-out/bin/`.
