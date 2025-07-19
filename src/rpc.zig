@@ -179,12 +179,12 @@ pub fn parseResp(val: msgpack.Value) !ParsedResp {
             }
             const msgType = (try it.next()).?;
             if (msgType.get_int() != 1) {
-                std.debug.print("unexpected message type {}\n", .{msgType});
+                std.debug.print("unexpected message type {f}\n", .{msgType});
                 return ParseRespErr.Malformed;
             }
             const msgId = (try it.next()).?;
             if (msgId.get_int() != 1) {
-                std.debug.print("unexpected message id {}\n", .{msgId});
+                std.debug.print("unexpected message id {f}\n", .{msgId});
                 return ParseRespErr.Malformed;
             }
             const errArr = (try it.next()).?;
@@ -259,11 +259,8 @@ test "unix" {
     sock.close();
 }
 
-//const ReadError = posix.ReadError || error{NotImpl};
-const ReadError = posix.ReadError;
-const WriteError = posix.WriteError;
-
-//const WinPipeStream = void;
+const ReadError = fs.File.ReadError || net.Stream.ReadError;
+const WriteError = fs.File.WriteError || net.Stream.WriteError;
 
 const Transport = union(enum) {
     net_stream: net.Stream,

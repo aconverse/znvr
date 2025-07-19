@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 const std = @import("std");
 const mem = std.mem;
 const FileOpenError = std.fs.File.OpenError;
+const zig_version = builtin.zig_version;
 
 const pipes = @import("pipes.zig");
 const uds = @import("uds.zig");
@@ -307,18 +308,23 @@ pub fn main() !u8 {
 
     switch (parsed) {
         .remoteErr => |e| {
-            std.debug.print("neovim server returned error:\n{}\n", .{e});
+            std.debug.print("neovim server returned error:\n{f}\n", .{e});
         },
         .remoteOk => |ok| {
             switch (ok) {
                 .Nil => {},
                 else => {
                     if (activeMode == Mode.EXPR) {
-                        std.io.getStdOut().writer().print("{}\n", .{ok}) catch {};
+                        if (zig_version.major == 0 and zig_version.minor <= 14) {
+                            std.io.getStdOut().writer().print("{}\n", .{ok}) catch {};
+                        } else {
+                            var stdout = std.fs.File.stdout();
+                            stdout.deprecatedWriter().print("{f}\n", .{ok}) catch {};
+                        }
                     } else if (activeMode == Mode.SEND) {
                         // seems to return the number of keys
                     } else if (activeMode == Mode.CHANGE_DIR) {
-                        std.debug.print("{}\n", .{ok});
+                        std.debug.print("{f}\n", .{ok});
                     }
                 },
             }
