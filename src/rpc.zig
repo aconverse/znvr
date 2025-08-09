@@ -24,7 +24,7 @@ pub const RpcConn = struct {
             };
             return rc;
         }
-        if (mem.indexOfAny(u8, addrBuf, "/\\") != null) {
+        if (net.has_unix_sockets and mem.indexOfAny(u8, addrBuf, "/\\") != null) {
             const stream = try net.connectUnixSocket(addrBuf);
             const rc = RpcConn{
                 .msgId = 0,
