@@ -1,7 +1,9 @@
 const std = @import("std");
 const mem = std.mem;
 const win32 = std.os.windows;
+const base = @import("base.zig");
 
+const ArrayList = base.ArrayList;
 const HANDLE = win32.HANDLE;
 const DWORD = win32.DWORD;
 const BOOL = win32.BOOL;
@@ -51,7 +53,7 @@ pub fn findSocket(alloc: mem.Allocator) ![]u8 {
     // Named pipe format:
     // - Windows: "\\.\pipe\<name>.<pid>.<counter>"
     // - Other: "/tmp/nvim.user/xxx/<name>.<pid>.<counter>"
-    var bestPipeOut = std.ArrayList(u8).init(alloc);
+    var bestPipeOut = ArrayList(u8).init(alloc);
     defer bestPipeOut.deinit();
 
     var dir = try std.fs.cwd().openDir("\\\\.\\pipe\\", .{ .iterate = true });

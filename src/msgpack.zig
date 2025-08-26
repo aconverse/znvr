@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const ArrayList = std.ArrayList;
+const base = @import("base.zig");
+const ArrayList = base.ArrayList;
 const Allocator = std.mem.Allocator;
 const zig_version = builtin.zig_version;
 

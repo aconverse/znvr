@@ -6,8 +6,10 @@ const mem = std.mem;
 const net = std.net;
 //const os = std.os;
 const posix = std.posix;
+const base = @import("base.zig");
 const msgpack = @import("msgpack.zig");
 const pipes = @import("pipes.zig");
+const ArrayList = base.ArrayList;
 
 const openScript = @embedFile("openfiles.lua");
 
@@ -49,7 +51,7 @@ pub const RpcConn = struct {
         const msgId: u32 = self.msgId + 1;
         self.msgId = msgId;
 
-        var buf = std.ArrayList(u8).init(alloc);
+        var buf = ArrayList(u8).init(alloc);
         defer buf.deinit();
         try msgpack.pack_raw(&buf, 0x94);
         try msgpack.pack_raw(&buf, 0x0);
@@ -65,7 +67,7 @@ pub const RpcConn = struct {
         const msgId: u32 = self.msgId + 1;
         self.msgId = msgId;
 
-        var buf = std.ArrayList(u8).init(alloc);
+        var buf = ArrayList(u8).init(alloc);
         defer buf.deinit();
         try msgpack.pack_raw(&buf, 0x94);
         try msgpack.pack_raw(&buf, 0x0);
@@ -87,7 +89,7 @@ pub const RpcConn = struct {
         }
         defer alloc.free(values);
 
-        var buf = std.ArrayList(u8).init(alloc);
+        var buf = ArrayList(u8).init(alloc);
         defer buf.deinit();
         try msgpack.pack_raw(&buf, 0x94);
         try msgpack.pack_raw(&buf, 0x0);
@@ -107,7 +109,7 @@ pub const RpcConn = struct {
         const msgId: u32 = self.msgId + 1;
         self.msgId = msgId;
 
-        var buf = std.ArrayList(u8).init(alloc);
+        var buf = ArrayList(u8).init(alloc);
         defer buf.deinit();
         // This might be overkill, but I think it handles escaping
         try msgpack.pack_raw(&buf, 0x94);
@@ -127,7 +129,7 @@ pub const RpcConn = struct {
         const msgId: u32 = self.msgId + 1;
         self.msgId = msgId;
 
-        var buf = std.ArrayList(u8).init(alloc);
+        var buf = ArrayList(u8).init(alloc);
         defer buf.deinit();
         try msgpack.pack_raw(&buf, 0x94);
         try msgpack.pack_raw(&buf, 0x0);
@@ -139,7 +141,7 @@ pub const RpcConn = struct {
         try self.tp.writeAll(buf.items);
     }
 
-    pub fn accumResp(self: *RpcConn, buf: *std.ArrayList(u8)) !?msgpack.Value {
+    pub fn accumResp(self: *RpcConn, buf: *ArrayList(u8)) !?msgpack.Value {
         const startIdx = buf.items.len;
         var writePtr = startIdx;
 

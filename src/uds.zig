@@ -1,6 +1,8 @@
 const std = @import("std");
 const mem = std.mem;
 const net = std.net;
+const base = @import("base.zig");
+const ArrayList = base.ArrayList;
 const FileOpenError = std.fs.File.OpenError;
 
 // Find the best (oldest) neovim socket. Caller takes ownership of returned memory.
@@ -37,7 +39,7 @@ pub fn findSocket(alloc: mem.Allocator) ![]u8 {
     defer bestSocketOut.deinit();
 
     var dir = std.fs.cwd().openDir(candidateSocketOut.items, .{ .iterate = true }) catch |err| {
-        std.debug.print("error opening outer sockets dir {s}: {s}\n", .{candidateSocketOut.items, @errorName(err)});
+        std.debug.print("error opening outer sockets dir {s}: {s}\n", .{ candidateSocketOut.items, @errorName(err) });
         return err;
     };
     defer dir.close();

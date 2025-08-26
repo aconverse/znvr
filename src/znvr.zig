@@ -4,10 +4,13 @@ const mem = std.mem;
 const FileOpenError = std.fs.File.OpenError;
 const zig_version = builtin.zig_version;
 
+const base = @import("base.zig");
 const pipes = @import("pipes.zig");
 const uds = @import("uds.zig");
 const rpc = @import("rpc.zig");
 const msgpack = @import("msgpack.zig");
+
+const ArrayList = base.ArrayList;
 
 const ArgsError = error{
     ExpectedAfterServername,
@@ -296,7 +299,7 @@ pub fn main() !u8 {
             std.debug.print("failed to send command to server: {}\n", .{e});
         };
     }
-    var respBuf = std.ArrayList(u8).init(alloc);
+    var respBuf = ArrayList(u8).init(alloc);
     defer respBuf.deinit();
     const resp = try pollResp(&conn, &respBuf);
     const parsed = rpc.parseResp(resp) catch |e| {
@@ -333,7 +336,7 @@ pub fn main() !u8 {
     return 0;
 }
 
-fn pollResp(conn: *rpc.RpcConn, respBuf: *std.ArrayList(u8)) !msgpack.Value {
+fn pollResp(conn: *rpc.RpcConn, respBuf: *ArrayList(u8)) !msgpack.Value {
     var resp: ?msgpack.Value = null;
     while (resp == null) {
         resp = try conn.accumResp(respBuf);
@@ -342,7 +345,7 @@ fn pollResp(conn: *rpc.RpcConn, respBuf: *std.ArrayList(u8)) !msgpack.Value {
 }
 
 fn remoteFileCmd(alloc: mem.Allocator, files: []const [:0]u8, tabs: bool) ![]const u8 {
-    var scratch = std.ArrayList(u8).init(alloc);
+    var scratch = ArrayList(u8).init(alloc);
     errdefer scratch.deinit();
 
     if (tabs) {
