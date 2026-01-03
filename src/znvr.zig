@@ -137,16 +137,14 @@ fn usage() !void {
     std.debug.print("Usage znvr [options] [mode option] [files...]\n\n", .{});
 
     std.debug.print("Options:\n", .{});
-    var linebuf: [120]u8 = undefined;
     for (KnownOpts) |kopt| {
         switch (kopt) {
             inline else => |opt| {
-                var writer = std.io.fixedBufferStream(&linebuf);
-                try writer.writer().print("{s}", .{opt.names[0]});
+                std.debug.print("   {s}", .{opt.names[0]});
                 for (opt.names[1..]) |name| {
-                    try writer.writer().print(", {s}", .{name});
+                    std.debug.print(", {s}", .{name});
                 }
-                std.debug.print("   {s}\n", .{writer.getWritten()});
+                std.debug.print("\n", .{});
                 std.debug.print("        {s}\n", .{opt.help});
             },
         }
