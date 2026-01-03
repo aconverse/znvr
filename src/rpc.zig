@@ -100,7 +100,7 @@ pub const RpcConn = struct {
         try msgpack.pack_raw(&buf, 0x93);
         try msgpack.pack_bool(&buf, tabs);
         try msgpack.pack_str(&buf, dir);
-        try msgpack.pack_arr_from_slice(&buf, values);
+        try msgpack.pack_arr(&buf, values);
 
         try self.tp.writeAll(buf.items);
     }
@@ -140,61 +140,60 @@ pub const RpcConn = struct {
 
         try self.tp.writeAll(buf.items);
     }
-
-    pub fn accumResp(self: *RpcConn, buf: *ArrayList(u8)) !?msgpack.Value {
-        const startIdx = buf.items.len;
-        var writePtr = startIdx;
-
-        try buf.resize(writePtr + 1024);
-        const count = self.tp.read(buf.items[writePtr..]) catch |err| {
-            try buf.resize(writePtr);
-            return err;
-        };
-        writePtr += count;
-        try buf.resize(writePtr);
-
-        var decode_buf: []const u8 = buf.items;
-        const val = msgpack.unpack_val(&decode_buf) catch |err| {
-            switch (err) {
-                error.Eof => return null,
-                else => |e| return e,
-            }
-        };
-        return val;
-    }
 };
 
 pub const ParseRespErr = error{Malformed};
 
 const ParsedResp = union(enum) {
-    remoteErr: msgpack.Value,
-    remoteOk: msgpack.Value,
+    remoteErr: ArrayList(u8),
+    remoteOk: ArrayList(u8),
+
+    pub fn deinit(self: *ParsedResp) void {
+        switch (self.*) {
+            .remoteErr => |v| {
+                v.deinit();
+            },
+            .remoteOk => |v| {
+                v.deinit();
+            },
+        }
+    }
 };
 
-pub fn parseResp(val: msgpack.Value) !ParsedResp {
+pub fn parseResp(conn: *RpcConn, alloc: mem.Allocator) !ParsedResp {
+    const buf = try alloc.alloc(u8, 4096);
+    defer alloc.free(buf);
+    var reader = conn.tp.reader(buf);
+    const iface = reader.interface();
+    const val = try msgpack.unpack_val(alloc, iface);
     switch (val) {
         .Arr => |a| {
-            var it: msgpack.ValueIterator = a;
-            if (it.count() != 4) {
+            if (a.items.len != 4) {
                 std.debug.print("unexpected response format\n", .{});
                 return ParseRespErr.Malformed;
             }
-            const msgType = (try it.next()).?;
+            const msgType = a.items[0];
             if (msgType.get_int() != 1) {
                 std.debug.print("unexpected message type {f}\n", .{msgType});
                 return ParseRespErr.Malformed;
             }
-            const msgId = (try it.next()).?;
+            const msgId = a.items[1];
             if (msgId.get_int() != 1) {
                 std.debug.print("unexpected message id {f}\n", .{msgId});
                 return ParseRespErr.Malformed;
             }
-            const errArr = (try it.next()).?;
-            if (!errArr.is_nil()) {
-                return ParsedResp{ .remoteErr = errArr };
+            const err = a.items[2];
+            if (!err.is_nil()) {
+                var list = ArrayList(u8).init(alloc);
+                errdefer list.deinit();
+                try list.print("{f}", .{err});
+                return ParsedResp{ .remoteErr = list };
             }
-            const okArr = (try it.next()).?;
-            return ParsedResp{ .remoteOk = okArr };
+            const ok = a.items[3];
+            var list = ArrayList(u8).init(alloc);
+            errdefer list.deinit();
+            try list.print("{f}", .{ok});
+            return ParsedResp{ .remoteOk = list };
         },
         else => {
             std.debug.print("unexpected response format\n", .{});
@@ -298,6 +297,16 @@ const Transport = union(enum) {
             },
         }
     }
+    fn reader(self: *Transport, buf: []u8) TransportReader {
+        switch (self.*) {
+            .net_stream => |s| {
+                return TransportReader{ .net_stream = s.reader(buf) };
+            },
+            .win_pipe => |s| {
+                return TransportReader{ .win_pipe = s.readerStreaming(buf) };
+            },
+        }
+    }
     fn close(self: *Transport) void {
         switch (self.*) {
             .net_stream => |s| {
@@ -305,6 +314,22 @@ const Transport = union(enum) {
             },
             .win_pipe => |s| {
                 s.close();
+            },
+        }
+    }
+};
+
+const TransportReader = union(enum) {
+    net_stream: net.Stream.Reader,
+    win_pipe: fs.File.Reader,
+
+    fn interface(self: *TransportReader) *std.Io.Reader {
+        switch (self.*) {
+            .net_stream => |*s| {
+                return s.interface();
+            },
+            .win_pipe => |*s| {
+                return &s.interface;
             },
         }
     }

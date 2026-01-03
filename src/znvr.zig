@@ -298,43 +298,31 @@ pub fn main() !u8 {
     }
     var respBuf = ArrayList(u8).init(alloc);
     defer respBuf.deinit();
-    const resp = try pollResp(&conn, &respBuf);
-    const parsed = rpc.parseResp(resp) catch |e| {
+
+    var parsed = rpc.parseResp(&conn, alloc) catch |e| {
         if (e == rpc.ParseRespErr.Malformed) {
             return 1;
         }
         return e;
     };
+    defer parsed.deinit();
 
     switch (parsed) {
         .remoteErr => |e| {
-            std.debug.print("neovim server returned error:\n{f}\n", .{e});
+            std.debug.print("neovim server returned error:\n{s}\n", .{e.items});
         },
         .remoteOk => |ok| {
-            switch (ok) {
-                .Nil => {},
-                else => {
-                    if (activeMode == Mode.EXPR) {
-                        var stdout = std.fs.File.stdout();
-                        stdout.deprecatedWriter().print("{f}\n", .{ok}) catch {};
-                    } else if (activeMode == Mode.SEND) {
-                        // seems to return the number of keys
-                    } else if (activeMode == Mode.CHANGE_DIR) {
-                        std.debug.print("{f}\n", .{ok});
-                    }
-                },
+            if (activeMode == Mode.EXPR) {
+                var stdout = std.fs.File.stdout();
+                stdout.deprecatedWriter().print("{s}\n", .{ok.items}) catch {};
+            } else if (activeMode == Mode.SEND) {
+                // seems to return the number of keys
+            } else if (activeMode == Mode.CHANGE_DIR) {
+                std.debug.print("{s}\n", .{ok.items});
             }
         },
     }
     return 0;
-}
-
-fn pollResp(conn: *rpc.RpcConn, respBuf: *ArrayList(u8)) !msgpack.Value {
-    var resp: ?msgpack.Value = null;
-    while (resp == null) {
-        resp = try conn.accumResp(respBuf);
-    }
-    return resp.?;
 }
 
 fn remoteFileCmd(alloc: mem.Allocator, files: []const [:0]u8, tabs: bool) ![]const u8 {
