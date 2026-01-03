@@ -2,7 +2,6 @@ const builtin = @import("builtin");
 const std = @import("std");
 const mem = std.mem;
 const FileOpenError = std.fs.File.OpenError;
-const zig_version = builtin.zig_version;
 
 const base = @import("base.zig");
 const pipes = @import("pipes.zig");
@@ -316,12 +315,8 @@ pub fn main() !u8 {
                 .Nil => {},
                 else => {
                     if (activeMode == Mode.EXPR) {
-                        if (zig_version.major == 0 and zig_version.minor <= 14) {
-                            std.io.getStdOut().writer().print("{}\n", .{ok}) catch {};
-                        } else {
-                            var stdout = std.fs.File.stdout();
-                            stdout.deprecatedWriter().print("{f}\n", .{ok}) catch {};
-                        }
+                        var stdout = std.fs.File.stdout();
+                        stdout.deprecatedWriter().print("{f}\n", .{ok}) catch {};
                     } else if (activeMode == Mode.SEND) {
                         // seems to return the number of keys
                     } else if (activeMode == Mode.CHANGE_DIR) {

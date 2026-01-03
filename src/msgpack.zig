@@ -1,9 +1,7 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const base = @import("base.zig");
 const ArrayList = base.ArrayList;
 const Allocator = std.mem.Allocator;
-const zig_version = builtin.zig_version;
 
 pub fn pack_raw(buf: *ArrayList(u8), val: u8) !void {
     try buf.append(val);
@@ -151,38 +149,7 @@ pub const Value = union(enum) {
             },
         }
     }
-    pub const format = if (zig_version.major == 0 and zig_version.minor <= 14) format_14 else format_15;
-    pub fn format_14(
-        self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
-        switch (self) {
-            .Nil => {
-                try writer.print("null", .{});
-            },
-            .Int => |v| {
-                try writer.print("{}", .{v});
-            },
-            .Str => |s| {
-                try writer.print("{s}", .{s});
-            },
-            .Arr => |vi| {
-                try writer.print("[", .{});
-                var vii = vi;
-                var leader: []const u8 = "";
-                while (try vii.next()) |v| {
-                    try writer.print("{s}{}", .{ leader, v });
-                    leader = ", ";
-                }
-                try writer.print("]", .{});
-            },
-        }
-    }
-    pub fn format_15(
+    pub fn format(
         self: @This(),
         writer: anytype,
     ) !void {
