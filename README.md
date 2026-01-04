@@ -38,4 +38,6 @@ for remote execution.
 
 ## Building from Source
 
-Run `zig build`, then the executable will be in `zig-out/bin/`.
+- Install zig >= 0.15.2.
+- Run `zig build`
+- The executable will be in `zig-out/bin/`.

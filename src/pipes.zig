@@ -3,15 +3,18 @@ const mem = std.mem;
 const win32 = std.os.windows;
 const base = @import("base.zig");
 
+const zig_version = @import("builtin").zig_version;
 const ArrayList = base.ArrayList;
+const FsShim = base.FsShim;
+const IoShim = base.IoShim;
+const FileOpenError = base.FileOpenError;
+
 const HANDLE = win32.HANDLE;
 const DWORD = win32.DWORD;
 const BOOL = win32.BOOL;
 const FILETIME = win32.FILETIME;
 pub extern "kernel32" fn OpenProcess(dwDesiredAccess: DWORD, bInheritHandle: BOOL, dwProcessId: DWORD) callconv(.winapi) HANDLE;
 pub extern "kernel32" fn GetProcessTimes(in_hProcess: HANDLE, out_lpCreationTime: *FILETIME, out_lpExitTime: *FILETIME, out_lpKernelTime: *FILETIME, out_lpUserTime: *FILETIME) callconv(.winapi) BOOL;
-
-const FileOpenError = std.fs.File.OpenError;
 
 fn fileTimeToU64(ft: FILETIME) u64 {
     return (@as(u64, ft.dwHighDateTime) << 32) | @as(u64, ft.dwLowDateTime);
@@ -56,12 +59,13 @@ pub fn findSocket(alloc: mem.Allocator) ![]u8 {
     var bestPipeOut = ArrayList(u8).init(alloc);
     defer bestPipeOut.deinit();
 
-    var dir = try std.fs.cwd().openDir("\\\\.\\pipe\\", .{ .iterate = true });
-    defer dir.close();
+    const io = base.ioBasic();
+    var dir = try FsShim.Dir.cwd().openDir(io, "\\\\.\\pipe\\", .{ .iterate = true });
+    defer dir.close(io);
     var oldest_ctime: u64 = std.math.maxInt(u64);
 
     var it = dir.iterate();
-    while (try it.next()) |file| {
+    while (try it.next(io)) |file| {
         if (file.kind != .file) {
             continue;
         }
@@ -87,7 +91,7 @@ pub fn findSocket(alloc: mem.Allocator) ![]u8 {
     return FileOpenError.FileNotFound;
 }
 
-pub fn connectNamedPipe(name: []const u8) !std.fs.File {
-    const flags = std.fs.File.OpenFlags{ .mode = std.fs.File.OpenMode.read_write };
-    return std.fs.openFileAbsolute(name, flags);
+pub fn connectNamedPipe(io: IoShim, name: []const u8) !FsShim.File {
+    const flags = FsShim.File.OpenFlags{ .mode = FsShim.File.OpenMode.read_write };
+    return FsShim.Dir.openFileAbsolute(io, name, flags);
 }

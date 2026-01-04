@@ -1,6 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const net = std.net;
+const zig_version = @import("builtin").zig_version;
 const base = @import("base.zig");
 const ArrayList = base.ArrayList;
 const FileOpenError = std.fs.File.OpenError;
@@ -98,4 +99,13 @@ pub fn findSocket(alloc: mem.Allocator) ![]u8 {
         return bestSocketOut.toOwnedSlice();
     }
     return FileOpenError.FileNotFound;
+}
+
+pub fn connectUnixSocket(io: base.IoShim, path: []const u8) !base.NetShim.Stream {
+    if (zig_version.major == 0 and zig_version.minor <= 15) {
+        return std.net.connectUnixSocket(path);
+    } else {
+        const addr = try std.Io.net.UnixAddress.init(path);
+        return addr.connect(io);
+    }
 }

@@ -3,13 +3,17 @@ const std = @import("std");
 const fs = std.fs;
 //const io = std.io;
 const mem = std.mem;
-const net = std.net;
 //const os = std.os;
 const posix = std.posix;
+const zig_version = builtin.zig_version;
 const base = @import("base.zig");
+const uds = @import("uds.zig");
 const msgpack = @import("msgpack.zig");
 const pipes = @import("pipes.zig");
 const ArrayList = base.ArrayList;
+const FsShim = base.FsShim;
+const IoShim = base.IoShim;
+const net = base.NetShim;
 
 const openScript = @embedFile("openfiles.lua");
 
@@ -20,21 +24,21 @@ pub const RpcConn = struct {
     rbuf: []u8,
     writer: TransportWriter,
 
-    pub fn openConn(alloc: mem.Allocator, addrBuf: []const u8) !RpcConn {
+    pub fn openConn(io: IoShim, alloc: mem.Allocator, addrBuf: []const u8) !RpcConn {
         const rbuf = try alloc.alloc(u8, 4096);
         errdefer alloc.free(rbuf);
 
         var tp = tp: {
             if (builtin.os.tag == .windows and mem.startsWith(u8, addrBuf, "\\\\.\\pipe\\")) {
-                const file = try pipes.connectNamedPipe(addrBuf);
+                const file = try pipes.connectNamedPipe(io, addrBuf);
                 break :tp Transport{ .win_pipe = file };
             } else if (net.has_unix_sockets and mem.indexOfAny(u8, addrBuf, "/\\") != null) {
-                const stream = try net.connectUnixSocket(addrBuf);
+                const stream = try uds.connectUnixSocket(io, addrBuf);
                 break :tp Transport{ .net_stream = stream };
             } else {
                 const hp = try splitHostPort(addrBuf);
-                const addr = try net.Address.parseIp(hp.host, hp.port);
-                const stream = try net.tcpConnectToAddress(addr);
+                const addr = try net.IpAddress.parse(hp.host, hp.port);
+                const stream = try connectTcp(io, addr);
                 break :tp Transport{ .net_stream = stream };
             }
         };
@@ -42,18 +46,18 @@ pub const RpcConn = struct {
         return RpcConn{
             .msgId = 0,
             .tp = tp,
-            .reader = tp.reader(rbuf),
+            .reader = tp.reader(io, rbuf),
             .rbuf = rbuf,
-            .writer = tp.writer(&.{}),
+            .writer = tp.writer(io, &.{}),
         };
     }
-    pub fn close(self: *RpcConn, alloc: mem.Allocator) void {
+    pub fn close(self: *RpcConn, io: IoShim, alloc: mem.Allocator) void {
         self.writer.interface().flush() catch {};
         alloc.free(self.rbuf);
         self.rbuf = undefined;
         self.reader = undefined;
         self.writer = undefined;
-        self.tp.close();
+        self.tp.close(io);
     }
 
     pub fn sendCmd(self: *RpcConn, alloc: mem.Allocator, cmd: []const u8) !void {
@@ -161,6 +165,14 @@ pub const RpcConn = struct {
     }
 };
 
+fn connectTcp(io: IoShim, addr: net.IpAddress) !net.Stream {
+    if (zig_version.major == 0 and zig_version.minor <= 15) {
+        return std.net.tcpConnectToAddress(addr.addr);
+    } else {
+        return addr.connect(io, net.IpAddress.ConnectOptions{ .mode = net.Socket.Mode.stream });
+    }
+}
+
 pub const ParseRespErr = error{Malformed};
 
 const ParsedResp = union(enum) {
@@ -182,8 +194,7 @@ const ParsedResp = union(enum) {
 pub fn parseResp(conn: *RpcConn, alloc: mem.Allocator) !ParsedResp {
     const buf = try alloc.alloc(u8, 4096);
     defer alloc.free(buf);
-    var reader = conn.tp.reader(buf);
-    const iface = reader.interface();
+    const iface = conn.reader.interface();
     var val = try msgpack.unpack_val(alloc, iface);
     defer val.deinit(alloc);
     switch (val) {
@@ -275,45 +286,40 @@ test "parse addr" {
     try expect(hp.port == 8080);
 }
 
-test "unix" {
-    var sock = try net.connectUnixSocket("\\\\.\\pipe\\nvim");
-    sock.close();
-}
-
-const ReadError = fs.File.ReadError || net.Stream.ReadError;
-const WriteError = fs.File.WriteError || net.Stream.WriteError;
+const ReadError = base.FileReaderError || base.NetStreamReaderError;
+const WriteError = base.FileWriterError || base.NetStreamWriterError;
 
 const Transport = union(enum) {
     net_stream: net.Stream,
-    win_pipe: fs.File,
+    win_pipe: FsShim.File,
 
-    fn reader(self: *Transport, buf: []u8) TransportReader {
+    fn reader(self: *Transport, io: IoShim, buf: []u8) TransportReader {
         switch (self.*) {
             .net_stream => |s| {
-                return TransportReader{ .net_stream = s.reader(buf) };
+                return TransportReader{ .net_stream = if (zig_version.major == 0 and zig_version.minor <= 15) s.reader(buf) else s.reader(io, buf) };
             },
             .win_pipe => |s| {
-                return TransportReader{ .win_pipe = s.readerStreaming(buf) };
+                return TransportReader{ .win_pipe = if (zig_version.major == 0 and zig_version.minor <= 15) s.readerStreaming(buf) else s.readerStreaming(io, buf) };
             },
         }
     }
-    fn writer(self: *Transport, buf: []u8) TransportWriter {
+    fn writer(self: *Transport, io: IoShim, buf: []u8) TransportWriter {
         switch (self.*) {
             .net_stream => |s| {
-                return TransportWriter{ .net_stream = s.writer(buf) };
+                return TransportWriter{ .net_stream = if (zig_version.major == 0 and zig_version.minor <= 15) s.writer(buf) else s.writer(io, buf) };
             },
             .win_pipe => |s| {
-                return TransportWriter{ .win_pipe = s.writerStreaming(buf) };
+                return TransportWriter{ .win_pipe = if (zig_version.major == 0 and zig_version.minor <= 15) s.writerStreaming(buf) else s.writerStreaming(io, buf) };
             },
         }
     }
-    fn close(self: *Transport) void {
+    fn close(self: *Transport, io: IoShim) void {
         switch (self.*) {
             .net_stream => |s| {
-                s.close();
+                if (zig_version.major == 0 and zig_version.minor <= 15) s.close() else s.close(io);
             },
             .win_pipe => |s| {
-                s.close();
+                if (zig_version.major == 0 and zig_version.minor <= 15) s.close() else s.close(io);
             },
         }
     }
@@ -321,12 +327,12 @@ const Transport = union(enum) {
 
 const TransportReader = union(enum) {
     net_stream: net.Stream.Reader,
-    win_pipe: fs.File.Reader,
+    win_pipe: FsShim.File.Reader,
 
     fn interface(self: *TransportReader) *std.Io.Reader {
         switch (self.*) {
             .net_stream => |*s| {
-                return s.interface();
+                return if (zig_version.major == 0 and zig_version.minor <= 15) s.interface() else &s.interface;
             },
             .win_pipe => |*s| {
                 return &s.interface;
@@ -337,7 +343,7 @@ const TransportReader = union(enum) {
 
 const TransportWriter = union(enum) {
     net_stream: net.Stream.Writer,
-    win_pipe: fs.File.Writer,
+    win_pipe: FsShim.File.Writer,
 
     fn interface(self: *TransportWriter) *std.Io.Writer {
         switch (self.*) {

@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
+const zig_version = builtin.zig_version;
 const std = @import("std");
 const mem = std.mem;
-const FileOpenError = std.fs.File.OpenError;
 
 const base = @import("base.zig");
 const pipes = @import("pipes.zig");
@@ -9,7 +9,10 @@ const uds = @import("uds.zig");
 const rpc = @import("rpc.zig");
 const msgpack = @import("msgpack.zig");
 
+const fs = base.FsShim;
+
 const ArrayList = base.ArrayList;
+const FileOpenError = base.FileOpenError;
 
 const ArgsError = error{
     ExpectedAfterServername,
@@ -202,6 +205,7 @@ pub fn main() !u8 {
             std.debug.print("leaked\n", .{});
         }
     }
+    const io = base.ioBasic();
 
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
@@ -258,11 +262,11 @@ pub fn main() !u8 {
         Mode.NONE => unreachable,
     }
 
-    var conn = rpc.RpcConn.openConn(alloc, servername) catch |e| {
+    var conn = rpc.RpcConn.openConn(io, alloc, servername) catch |e| {
         std.debug.print("failed to connect to server: {}\n", .{e});
         return 1;
     };
-    defer conn.close(alloc);
+    defer conn.close(io, alloc);
 
     if (activeMode == Mode.EXPR) {
         conn.sendExpr(alloc, files[0]) catch |e| {
@@ -313,8 +317,9 @@ pub fn main() !u8 {
         },
         .remoteOk => |ok| {
             if (activeMode == Mode.EXPR) {
-                var stdout = std.fs.File.stdout();
-                stdout.deprecatedWriter().print("{s}\n", .{ok.items}) catch {};
+                var stdout = if (zig_version.major == 0 and zig_version.minor <= 15) fs.File.stdout().writer(&.{}) else fs.File.stdout().writer(io, &.{});
+                stdout.interface.print("{s}\n", .{ok.items}) catch {};
+                stdout.interface.flush() catch {};
             } else if (activeMode == Mode.SEND) {
                 // seems to return the number of keys
             } else if (activeMode == Mode.CHANGE_DIR) {
