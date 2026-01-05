@@ -165,7 +165,8 @@ pub fn parseResp(conn: *RpcConn, alloc: mem.Allocator) !ParsedResp {
     defer alloc.free(buf);
     var reader = conn.tp.reader(buf);
     const iface = reader.interface();
-    const val = try msgpack.unpack_val(alloc, iface);
+    var val = try msgpack.unpack_val(alloc, iface);
+    defer val.deinit(alloc);
     switch (val) {
         .Arr => |a| {
             if (a.items.len != 4) {
