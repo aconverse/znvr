@@ -258,11 +258,11 @@ pub fn main() !u8 {
         Mode.NONE => unreachable,
     }
 
-    var conn = rpc.RpcConn.openConn(servername) catch |e| {
+    var conn = rpc.RpcConn.openConn(alloc, servername) catch |e| {
         std.debug.print("failed to connect to server: {}\n", .{e});
         return 1;
     };
-    defer conn.close();
+    defer conn.close(alloc);
 
     if (activeMode == Mode.EXPR) {
         conn.sendExpr(alloc, files[0]) catch |e| {

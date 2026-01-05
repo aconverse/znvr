@@ -16,34 +16,43 @@ const openScript = @embedFile("openfiles.lua");
 pub const RpcConn = struct {
     msgId: u32,
     tp: Transport,
+    reader: TransportReader,
+    rbuf: []u8,
+    writer: TransportWriter,
 
-    pub fn openConn(addrBuf: []const u8) !RpcConn {
-        if (builtin.os.tag == .windows and mem.startsWith(u8, addrBuf, "\\\\.\\pipe\\")) {
-            const file = try pipes.connectNamedPipe(addrBuf);
-            const rc = RpcConn{
-                .msgId = 0,
-                .tp = Transport{ .win_pipe = file },
-            };
-            return rc;
-        }
-        if (net.has_unix_sockets and mem.indexOfAny(u8, addrBuf, "/\\") != null) {
-            const stream = try net.connectUnixSocket(addrBuf);
-            const rc = RpcConn{
-                .msgId = 0,
-                .tp = Transport{ .net_stream = stream },
-            };
-            return rc;
-        }
-        const hp = try splitHostPort(addrBuf);
-        const addr = try net.Address.parseIp(hp.host, hp.port);
-        const stream = try net.tcpConnectToAddress(addr);
-        const rc = RpcConn{
-            .msgId = 0,
-            .tp = Transport{ .net_stream = stream },
+    pub fn openConn(alloc: mem.Allocator, addrBuf: []const u8) !RpcConn {
+        const rbuf = try alloc.alloc(u8, 4096);
+        errdefer alloc.free(rbuf);
+
+        var tp = tp: {
+            if (builtin.os.tag == .windows and mem.startsWith(u8, addrBuf, "\\\\.\\pipe\\")) {
+                const file = try pipes.connectNamedPipe(addrBuf);
+                break :tp Transport{ .win_pipe = file };
+            } else if (net.has_unix_sockets and mem.indexOfAny(u8, addrBuf, "/\\") != null) {
+                const stream = try net.connectUnixSocket(addrBuf);
+                break :tp Transport{ .net_stream = stream };
+            } else {
+                const hp = try splitHostPort(addrBuf);
+                const addr = try net.Address.parseIp(hp.host, hp.port);
+                const stream = try net.tcpConnectToAddress(addr);
+                break :tp Transport{ .net_stream = stream };
+            }
         };
-        return rc;
+
+        return RpcConn{
+            .msgId = 0,
+            .tp = tp,
+            .reader = tp.reader(rbuf),
+            .rbuf = rbuf,
+            .writer = tp.writer(&.{}),
+        };
     }
-    pub fn close(self: *RpcConn) void {
+    pub fn close(self: *RpcConn, alloc: mem.Allocator) void {
+        self.writer.interface().flush() catch {};
+        alloc.free(self.rbuf);
+        self.rbuf = undefined;
+        self.reader = undefined;
+        self.writer = undefined;
         self.tp.close();
     }
 
@@ -60,7 +69,9 @@ pub const RpcConn = struct {
         try msgpack.pack_raw(&buf, 0x91);
         try msgpack.pack_str(&buf, cmd);
 
-        try self.tp.writeAll(buf.items);
+        const w = self.writer.interface();
+        try w.writeAll(buf.items);
+        try w.flush();
     }
 
     pub fn sendExpr(self: *RpcConn, alloc: mem.Allocator, expr: []const u8) !void {
@@ -76,7 +87,9 @@ pub const RpcConn = struct {
         try msgpack.pack_raw(&buf, 0x91);
         try msgpack.pack_str(&buf, expr);
 
-        try self.tp.writeAll(buf.items);
+        const w = self.writer.interface();
+        try w.writeAll(buf.items);
+        try w.flush();
     }
 
     pub fn sendLuaOpen(self: *RpcConn, alloc: mem.Allocator, tabs: bool, dir: []const u8, files: []const [:0]u8) !void {
@@ -102,7 +115,9 @@ pub const RpcConn = struct {
         try msgpack.pack_str(&buf, dir);
         try msgpack.pack_arr(&buf, values);
 
-        try self.tp.writeAll(buf.items);
+        const w = self.writer.interface();
+        try w.writeAll(buf.items);
+        try w.flush();
     }
 
     pub fn sendChangeDir(self: *RpcConn, alloc: mem.Allocator, dir: []const u8) !void {
@@ -122,7 +137,9 @@ pub const RpcConn = struct {
         try msgpack.pack_raw(&buf, 0x91);
         try msgpack.pack_str(&buf, dir);
 
-        try self.tp.writeAll(buf.items);
+        const w = self.writer.interface();
+        try w.writeAll(buf.items);
+        try w.flush();
     }
 
     pub fn sendKeys(self: *RpcConn, alloc: mem.Allocator, cmd: []const u8) !void {
@@ -138,7 +155,9 @@ pub const RpcConn = struct {
         try msgpack.pack_raw(&buf, 0x91);
         try msgpack.pack_str(&buf, cmd);
 
-        try self.tp.writeAll(buf.items);
+        const w = self.writer.interface();
+        try w.writeAll(buf.items);
+        try w.flush();
     }
 };
 
@@ -268,36 +287,6 @@ const Transport = union(enum) {
     net_stream: net.Stream,
     win_pipe: fs.File,
 
-    fn read(self: *Transport, buf: []u8) ReadError!usize {
-        switch (self.*) {
-            .net_stream => |s| {
-                return s.read(buf);
-            },
-            .win_pipe => |s| {
-                return s.read(buf);
-            },
-        }
-    }
-    fn write(self: *Transport, buf: []const u8) WriteError!usize {
-        switch (self.*) {
-            .net_stream => |s| {
-                return s.write(buf);
-            },
-            .win_pipe => |s| {
-                return s.write(buf);
-            },
-        }
-    }
-    fn writeAll(self: *Transport, buf: []const u8) WriteError!void {
-        switch (self.*) {
-            .net_stream => |s| {
-                return s.writeAll(buf);
-            },
-            .win_pipe => |s| {
-                return s.writeAll(buf);
-            },
-        }
-    }
     fn reader(self: *Transport, buf: []u8) TransportReader {
         switch (self.*) {
             .net_stream => |s| {
@@ -305,6 +294,16 @@ const Transport = union(enum) {
             },
             .win_pipe => |s| {
                 return TransportReader{ .win_pipe = s.readerStreaming(buf) };
+            },
+        }
+    }
+    fn writer(self: *Transport, buf: []u8) TransportWriter {
+        switch (self.*) {
+            .net_stream => |s| {
+                return TransportWriter{ .net_stream = s.writer(buf) };
+            },
+            .win_pipe => |s| {
+                return TransportWriter{ .win_pipe = s.writerStreaming(buf) };
             },
         }
     }
@@ -328,6 +327,22 @@ const TransportReader = union(enum) {
         switch (self.*) {
             .net_stream => |*s| {
                 return s.interface();
+            },
+            .win_pipe => |*s| {
+                return &s.interface;
+            },
+        }
+    }
+};
+
+const TransportWriter = union(enum) {
+    net_stream: net.Stream.Writer,
+    win_pipe: fs.File.Writer,
+
+    fn interface(self: *TransportWriter) *std.Io.Writer {
+        switch (self.*) {
+            .net_stream => |*s| {
+                return &s.interface;
             },
             .win_pipe => |*s| {
                 return &s.interface;
