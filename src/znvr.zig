@@ -164,7 +164,7 @@ fn usage() !void {
     std.debug.print("\n{s}\n", .{serverSelectionInfo});
 }
 
-fn parseArgs(args: []const [:0]u8) ![]const [:0]u8 {
+fn parseArgs(args: []const [:0]const u8) ![]const [:0]const u8 {
     defer setModeFromOpts();
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
@@ -196,20 +196,14 @@ fn parseArgs(args: []const [:0]u8) ![]const [:0]u8 {
     return args[i..];
 }
 
-pub fn main() !u8 {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloc = gpa.allocator();
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) {
-            std.debug.print("leaked\n", .{});
-        }
-    }
-    const io = base.ioBasic();
+const entry = if (builtin.zig_version.minor >= 16)
+    @import("main_016.zig")
+else
+    @import("main_015.zig");
 
-    const args = try std.process.argsAlloc(alloc);
-    defer std.process.argsFree(alloc, args);
+pub const main = entry.main;
 
+pub fn run(alloc: mem.Allocator, io: base.IoShim, args: []const [:0]const u8, envmap: *base.EnvMap) !u8 {
     if (args.len <= 1) {
         try usage();
         return 0;
@@ -227,7 +221,7 @@ pub fn main() !u8 {
         return 1;
     }
 
-    const servername = try getServerName(alloc) orelse {
+    const servername = try getServerName(io, alloc, envmap) orelse {
         // all expected errors log internally
         //std.debug.print("no server found\n", .{});
         return 1;
@@ -279,7 +273,7 @@ pub fn main() !u8 {
     } else if (activeMode == Mode.CHANGE_DIR) {
         var resolved_dir: ?[]const u8 = null;
         if (optRelative.value != true) {
-            const cwd = try std.process.getCwdAlloc(alloc);
+            const cwd = try base.currentPathAlloc(io, alloc);
             defer alloc.free(cwd);
             resolved_dir = try std.fs.path.resolve(alloc, &[_][]const u8{
                 cwd,
@@ -292,7 +286,7 @@ pub fn main() !u8 {
         };
     } else {
         const dir: ?[]const u8 = if (optRelative.value != true)
-            try std.process.getCwdAlloc(alloc)
+            try base.currentPathAlloc(io, alloc)
         else
             null;
         defer if (dir) |a| alloc.free(a);
@@ -345,23 +339,21 @@ fn remoteFileCmd(alloc: mem.Allocator, files: []const [:0]u8, tabs: bool) ![]con
     return scratch.toOwnedSlice();
 }
 
-fn searchSocket(alloc: mem.Allocator) ![]u8 {
+fn searchSocket(io: base.IoShim, alloc: mem.Allocator) ![]u8 {
     if (builtin.os.tag == .windows) {
-        return try pipes.findSocket(alloc);
+        return try pipes.findSocket(io, alloc);
     } else {
         return try uds.findSocket(alloc);
     }
 }
 
-fn getServerName(alloc: mem.Allocator) !?[]u8 {
+fn getServerName(io: base.IoShim, alloc: mem.Allocator, envmap: *base.EnvMap) !?[]u8 {
     if (optServerName.value) |name| {
         if (name.len > 0) {
             return try alloc.dupe(u8, name);
         }
     }
 
-    var envmap = try std.process.getEnvMap(alloc);
-    defer envmap.deinit();
     if (envmap.get("NVIM")) |s| {
         return try alloc.dupe(u8, s);
     }
@@ -370,7 +362,7 @@ fn getServerName(alloc: mem.Allocator) !?[]u8 {
         return try alloc.dupe(u8, s);
     }
 
-    return searchSocket(alloc) catch |err| {
+    return searchSocket(io, alloc) catch |err| {
         switch (err) {
             FileOpenError.FileNotFound => {
                 std.debug.print("No neovim socket found\n", .{});

@@ -96,7 +96,7 @@ pub const RpcConn = struct {
         try w.flush();
     }
 
-    pub fn sendLuaOpen(self: *RpcConn, alloc: mem.Allocator, tabs: bool, dir: []const u8, files: []const [:0]u8) !void {
+    pub fn sendLuaOpen(self: *RpcConn, alloc: mem.Allocator, tabs: bool, dir: []const u8, files: []const [:0]const u8) !void {
         const msgId: u32 = self.msgId + 1;
         self.msgId = msgId;
 

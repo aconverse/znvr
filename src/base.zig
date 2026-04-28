@@ -8,13 +8,7 @@ pub const NetStreamReaderError = if (zig_version.major == 0 and zig_version.mino
 pub const NetStreamWriterError = if (zig_version.major == 0 and zig_version.minor <= 15) std.net.Stream.WriteError else std.Io.net.Stream.Writer.Error;
 
 pub const IoShim = if (zig_version.major == 0 and zig_version.minor <= 15) struct {} else std.Io;
-
-pub fn ioBasic() IoShim {
-    return if (zig_version.major == 0 and zig_version.minor <= 15)
-        IoShim{}
-    else
-        std.Io.Threaded.global_single_threaded.ioBasic();
-}
+pub const EnvMap = if (zig_version.major == 0 and zig_version.minor <= 15) std.process.EnvMap else std.process.Environ.Map;
 
 pub const FsShim = if (zig_version.major == 0 and zig_version.minor <= 15) struct {
     pub const Dir = struct {
@@ -57,6 +51,10 @@ pub const NetShim = if (zig_version.major == 0 and zig_version.minor <= 15) stru
     };
     pub const has_unix_sockets = std.net.has_unix_sockets;
 } else std.Io.net;
+
+pub fn currentPathAlloc(io: IoShim, alloc: std.mem.Allocator) ![]const u8 {
+    return if (zig_version.major == 0 and zig_version.minor <= 15) std.process.getCwdAlloc(alloc) else std.process.currentPathAlloc(io, alloc);
+}
 
 pub fn ArrayList(comptime T: type) type {
     return std.array_list.AlignedManaged(T, null);

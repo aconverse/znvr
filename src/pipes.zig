@@ -16,6 +16,11 @@ const FILETIME = win32.FILETIME;
 pub extern "kernel32" fn OpenProcess(dwDesiredAccess: DWORD, bInheritHandle: BOOL, dwProcessId: DWORD) callconv(.winapi) HANDLE;
 pub extern "kernel32" fn GetProcessTimes(in_hProcess: HANDLE, out_lpCreationTime: *FILETIME, out_lpExitTime: *FILETIME, out_lpKernelTime: *FILETIME, out_lpUserTime: *FILETIME) callconv(.winapi) BOOL;
 
+pub const FALSE: BOOL = if (zig_version.major == 0 and zig_version.minor <= 15)
+    @as(BOOL, 0)
+else
+    @enumFromInt(0);
+
 fn fileTimeToU64(ft: FILETIME) u64 {
     return (@as(u64, ft.dwHighDateTime) << 32) | @as(u64, ft.dwLowDateTime);
 }
@@ -23,14 +28,14 @@ fn fileTimeToU64(ft: FILETIME) u64 {
 fn getProcCreationTime(pid: u32) u64 {
     const PROCESS_QUERY_INFORMATION: DWORD = 0x400;
 
-    const hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, win32.FALSE, pid);
+    const hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
     defer _ = win32.CloseHandle(hProcess);
     //var ftCreation align(8) = mem.zeroes(FILETIME);
     var ftCreation = mem.zeroes(FILETIME);
     var ft1 = mem.zeroes(FILETIME);
     var ft2 = mem.zeroes(FILETIME);
     var ft3 = mem.zeroes(FILETIME);
-    if (0 == GetProcessTimes(hProcess, &ftCreation, &ft1, &ft2, &ft3)) {
+    if (FALSE == GetProcessTimes(hProcess, &ftCreation, &ft1, &ft2, &ft3)) {
         return std.math.maxInt(i64);
     }
     return fileTimeToU64(ftCreation);
@@ -51,7 +56,7 @@ fn extractPid(pipename: []const u8) ?u32 {
 }
 
 // Find the best (oldest) neovim socket. Caller takes ownership of returned memory.
-pub fn findSocket(alloc: mem.Allocator) ![]u8 {
+pub fn findSocket(io: base.IoShim, alloc: mem.Allocator) ![]u8 {
     // From nvim source:
     // Named pipe format:
     // - Windows: "\\.\pipe\<name>.<pid>.<counter>"
@@ -59,7 +64,6 @@ pub fn findSocket(alloc: mem.Allocator) ![]u8 {
     var bestPipeOut = ArrayList(u8).init(alloc);
     defer bestPipeOut.deinit();
 
-    const io = base.ioBasic();
     var dir = try FsShim.Dir.cwd().openDir(io, "\\\\.\\pipe\\", .{ .iterate = true });
     defer dir.close(io);
     var oldest_ctime: u64 = std.math.maxInt(u64);
